@@ -1,0 +1,3219 @@
+{
+  "datasets": [
+    {
+      "name": "7708da41",
+      "displayName": "kpi_usage_summary",
+      "queryLines": [
+        "SELECT\n",
+        "  Entity,\n",
+        "  Month,\n",
+        "  ReportName,\n",
+        "  UserName_Clean,\n",
+        "  SUM(Total_User_Executions) AS Total_Executions,\n",
+        "  COUNT(DISTINCT ReportName) AS Total_Unique_Reports,\n",
+        "  COUNT(DISTINCT\n",
+        "    CASE\n",
+        "      WHEN IsSystemAccount = false THEN UserName_Clean\n",
+        "    END\n",
+        "  ) AS Total_Active_Users,\n",
+        "  COUNT(DISTINCT Entity) AS Total_Labs\n",
+        "FROM\n",
+        "  workspace.gold.report_execution_summary\n",
+        "WHERE\n",
+        "  ReportName IS NOT NULL\n",
+        "GROUP BY\n",
+        "  Entity,\n",
+        "  Month,\n",
+        "  ReportName,\n",
+        "  UserName_Clean;"
+      ]
+    },
+    {
+      "name": "822a3dec",
+      "displayName": "kpi_executions_by_lab",
+      "queryLines": [
+        "SELECT\n",
+        "  Entity,\n",
+        "  Month,\n",
+        "  ReportName,\n",
+        "  UserName_Clean,\n",
+        "  SUM(Total_User_Executions) AS Total_Executions,\n",
+        "  COUNT(DISTINCT ReportName) AS Unique_Reports,\n",
+        "  COUNT(DISTINCT\n",
+        "    CASE\n",
+        "      WHEN IsSystemAccount = false THEN UserName_Clean\n",
+        "    END\n",
+        "  ) AS Active_Users\n",
+        "FROM\n",
+        "  workspace.gold.report_execution_summary\n",
+        "WHERE\n",
+        "  ReportName IS NOT NULL\n",
+        "GROUP BY\n",
+        "  Entity,\n",
+        "  Month,\n",
+        "  ReportName,\n",
+        "  UserName_Clean\n",
+        "ORDER BY\n",
+        "  Total_Executions DESC;"
+      ]
+    },
+    {
+      "name": "a11d80dd",
+      "displayName": "kpi_top_reports",
+      "queryLines": [
+        "WITH report_totals AS (\n",
+        "  SELECT\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    UserName_Clean,\n",
+        "    SUM(Total_User_Executions) AS Total_Executions,\n",
+        "    COUNT(DISTINCT UserName_Clean) AS Unique_Users,\n",
+        "    ROUND(AVG(Avg_Duration_Sec), 2) AS Avg_Duration_Sec\n",
+        "  FROM\n",
+        "    workspace.gold.report_execution_summary\n",
+        "  WHERE\n",
+        "    ReportName IS NOT NULL\n",
+        "  GROUP BY\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    UserName_Clean\n",
+        "),\n",
+        "ranked AS (\n",
+        "  SELECT\n",
+        "    *,\n",
+        "    RANK() OVER (PARTITION BY ReportName, Month ORDER BY Total_Executions DESC) AS rnk\n",
+        "  FROM\n",
+        "    report_totals\n",
+        "),\n",
+        "top_reports AS (\n",
+        "  SELECT\n",
+        "    ReportName,\n",
+        "    Month,\n",
+        "    SUM(Total_Executions) AS Global_Executions\n",
+        "  FROM\n",
+        "    report_totals\n",
+        "  GROUP BY\n",
+        "    ReportName,\n",
+        "    Month\n",
+        "),\n",
+        "top_ranked AS (\n",
+        "  SELECT\n",
+        "    ReportName,\n",
+        "    Month,\n",
+        "    RANK() OVER (PARTITION BY Month ORDER BY Global_Executions DESC) AS global_rank\n",
+        "  FROM\n",
+        "    top_reports\n",
+        ")\n",
+        "SELECT\n",
+        "  r.ReportName,\n",
+        "  r.Entity,\n",
+        "  r.Month,\n",
+        "  r.UserName_Clean,\n",
+        "  r.Total_Executions,\n",
+        "  r.Unique_Users,\n",
+        "  r.Avg_Duration_Sec,\n",
+        "  tr.global_rank\n",
+        "FROM\n",
+        "  ranked r\n",
+        "    INNER JOIN top_ranked tr\n",
+        "      ON r.ReportName = tr.ReportName\n",
+        "      AND r.Month = tr.Month\n",
+        "WHERE\n",
+        "  tr.global_rank <= 10\n",
+        "ORDER BY\n",
+        "  tr.Month,\n",
+        "  tr.global_rank,\n",
+        "  r.Total_Executions DESC;"
+      ]
+    },
+    {
+      "name": "0193d42a",
+      "displayName": "kpi_top_users",
+      "queryLines": [
+        "WITH user_agg AS (\r\n",
+        "  SELECT\r\n",
+        "    Entity,\r\n",
+        "    Month,\r\n",
+        "    UserName_Clean,\r\n",
+        "    Domain,\r\n",
+        "    ReportName,\r\n",
+        "    SUM(Total_User_Executions) AS Total_Executions,\r\n",
+        "    COUNT(DISTINCT ReportName) AS Reports_Run\r\n",
+        "  FROM\r\n",
+        "    workspace.gold.report_execution_summary\r\n",
+        "  WHERE\r\n",
+        "    IsSystemAccount = false\r\n",
+        "    AND ReportName IS NOT NULL\r\n",
+        "  GROUP BY\r\n",
+        "    Entity,\r\n",
+        "    Month,\r\n",
+        "    UserName_Clean,\r\n",
+        "    Domain,\r\n",
+        "    ReportName\r\n",
+        "),\r\n",
+        "user_global AS (\r\n",
+        "  SELECT\r\n",
+        "    Entity,\r\n",
+        "    Month,\r\n",
+        "    UserName_Clean,\r\n",
+        "    Domain,\r\n",
+        "    ReportName,\r\n",
+        "    Total_Executions,\r\n",
+        "    Reports_Run,\r\n",
+        "    DENSE_RANK() OVER (PARTITION BY Month ORDER BY Total_Executions DESC) AS global_rnk\r\n",
+        "  FROM\r\n",
+        "    user_agg\r\n",
+        ")\r\n",
+        "SELECT\r\n",
+        "  Entity,\r\n",
+        "  Month,\r\n",
+        "  UserName_Clean,\r\n",
+        "  Domain,\r\n",
+        "  ReportName,\r\n",
+        "  Total_Executions,\r\n",
+        "  Reports_Run,\r\n",
+        "  global_rnk\r\n",
+        "FROM\r\n",
+        "  user_global\r\n",
+        "WHERE\r\n",
+        "  global_rnk <= 10\r\n",
+        "ORDER BY\r\n",
+        "  Month,\r\n",
+        "  global_rnk,\r\n",
+        "  Total_Executions DESC;"
+      ]
+    },
+    {
+      "name": "016ea335",
+      "displayName": "kpi_performance",
+      "queryLines": [
+        "WITH perf_totals AS (\n",
+        "  SELECT\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    UserName_Clean,\n",
+        "    ROUND(AVG(Avg_Duration_Sec), 2) AS Avg_Duration_Sec,\n",
+        "    ROUND(MAX(Max_Duration_Sec), 2) AS Max_Duration_Sec,\n",
+        "    ROUND(AVG(P95_Duration_Sec), 2) AS P95_Duration_Sec,\n",
+        "    ROUND(AVG(Avg_DataRetrieval_Sec), 2) AS Avg_DataRetrieval_Sec,\n",
+        "    ROUND(AVG(Avg_Processing_Sec), 2) AS Avg_Processing_Sec,\n",
+        "    ROUND(AVG(Avg_Rendering_Sec), 2) AS Avg_Rendering_Sec,\n",
+        "    SUM(Total_User_Executions) AS Total_Executions\n",
+        "  FROM\n",
+        "    workspace.gold.report_execution_summary\n",
+        "  WHERE\n",
+        "    ReportName IS NOT NULL\n",
+        "  GROUP BY\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    UserName_Clean\n",
+        "),\n",
+        "global_perf AS (\n",
+        "  SELECT\n",
+        "    ReportName,\n",
+        "    Month,\n",
+        "    AVG(P95_Duration_Sec) AS Global_P95\n",
+        "  FROM\n",
+        "    perf_totals\n",
+        "  GROUP BY\n",
+        "    ReportName,\n",
+        "    Month\n",
+        "),\n",
+        "top_ranked AS (\n",
+        "  SELECT\n",
+        "    ReportName,\n",
+        "    Month,\n",
+        "    RANK() OVER (PARTITION BY Month ORDER BY Global_P95 DESC) AS global_rank\n",
+        "  FROM\n",
+        "    global_perf\n",
+        ")\n",
+        "SELECT\n",
+        "  p.ReportName,\n",
+        "  p.Entity,\n",
+        "  p.Month,\n",
+        "  p.UserName_Clean,\n",
+        "  p.Avg_Duration_Sec,\n",
+        "  p.Max_Duration_Sec,\n",
+        "  p.P95_Duration_Sec,\n",
+        "  p.Avg_DataRetrieval_Sec,\n",
+        "  p.Avg_Processing_Sec,\n",
+        "  p.Avg_Rendering_Sec,\n",
+        "  p.Total_Executions,\n",
+        "  tr.global_rank\n",
+        "FROM\n",
+        "  perf_totals p\n",
+        "    INNER JOIN top_ranked tr\n",
+        "      ON p.ReportName = tr.ReportName\n",
+        "      AND p.Month = tr.Month\n",
+        "WHERE\n",
+        "  tr.global_rank <= 15\n",
+        "ORDER BY\n",
+        "  tr.Month,\n",
+        "  tr.global_rank,\n",
+        "  p.P95_Duration_Sec DESC;"
+      ]
+    },
+    {
+      "name": "d24bf7ca",
+      "displayName": "kpi_volume",
+      "queryLines": [
+        "WITH vol_totals AS (\n",
+        "  SELECT\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    UserName_Clean,\n",
+        "    ROUND(AVG(Avg_Row_Count), 0) AS Avg_Row_Count,\n",
+        "    ROUND(AVG(Avg_Byte_Count), 0) AS Avg_Byte_Count,\n",
+        "    SUM(Total_User_Executions) AS Total_Executions\n",
+        "  FROM\n",
+        "    workspace.gold.report_execution_summary\n",
+        "  WHERE\n",
+        "    ReportName IS NOT NULL\n",
+        "  GROUP BY\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    UserName_Clean\n",
+        "),\n",
+        "lab_vol AS (\n",
+        "  SELECT\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    AVG(Avg_Byte_Count) AS Lab_Bytes\n",
+        "  FROM\n",
+        "    vol_totals\n",
+        "  GROUP BY\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month\n",
+        "),\n",
+        "ranked AS (\n",
+        "  SELECT\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    DENSE_RANK() OVER (PARTITION BY Entity, Month ORDER BY Lab_Bytes DESC) AS lab_rank\n",
+        "  FROM\n",
+        "    lab_vol\n",
+        ")\n",
+        "SELECT\n",
+        "  v.ReportName,\n",
+        "  v.Entity,\n",
+        "  v.Month,\n",
+        "  v.UserName_Clean,\n",
+        "  v.Avg_Row_Count,\n",
+        "  v.Avg_Byte_Count,\n",
+        "  v.Total_Executions,\n",
+        "  r.lab_rank\n",
+        "FROM\n",
+        "  vol_totals v\n",
+        "    INNER JOIN ranked r\n",
+        "      ON v.ReportName = r.ReportName\n",
+        "      AND v.Entity = r.Entity\n",
+        "      AND v.Month = r.Month\n",
+        "WHERE\n",
+        "  r.lab_rank <= 10\n",
+        "ORDER BY\n",
+        "  v.Month,\n",
+        "  v.Entity,\n",
+        "  v.Avg_Byte_Count DESC;"
+      ]
+    },
+    {
+      "name": "28636de3",
+      "displayName": "kpi_account_split",
+      "queryLines": [
+        "SELECT\n",
+        "  Entity,\n",
+        "  Month,\n",
+        "  ReportName,\n",
+        "  UserName_Clean,\n",
+        "  CASE\n",
+        "    WHEN IsSystemAccount = false THEN 'Human'\n",
+        "    ELSE 'System'\n",
+        "  END AS Account_Type,\n",
+        "  SUM(Total_User_Executions) AS Total_Executions\n",
+        "FROM\n",
+        "  workspace.gold.report_execution_summary\n",
+        "WHERE\n",
+        "  ReportName IS NOT NULL\n",
+        "GROUP BY\n",
+        "  Entity,\n",
+        "  Month,\n",
+        "  ReportName,\n",
+        "  UserName_Clean,\n",
+        "  IsSystemAccount\n",
+        "ORDER BY\n",
+        "  Month,\n",
+        "  Entity,\n",
+        "  IsSystemAccount;"
+      ]
+    },
+    {
+      "name": "eb81e97b",
+      "displayName": "kpi_avg_duration",
+      "queryLines": [
+        "WITH duration_totals AS (\n",
+        "  SELECT\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    UserName_Clean,\n",
+        "    ROUND(AVG(Avg_DataRetrieval_Sec), 2) AS Avg_DataRetrieval_Sec,\n",
+        "    ROUND(AVG(Avg_Processing_Sec), 2) AS Avg_Processing_Sec,\n",
+        "    ROUND(AVG(Avg_Rendering_Sec), 2) AS Avg_Rendering_Sec,\n",
+        "    ROUND(\n",
+        "      AVG(Avg_DataRetrieval_Sec) + AVG(Avg_Processing_Sec) + AVG(Avg_Rendering_Sec),\n",
+        "      2\n",
+        "    ) AS Total_Avg_Duration\n",
+        "  FROM\n",
+        "    workspace.gold.report_execution_summary\n",
+        "  WHERE\n",
+        "    ReportName IS NOT NULL\n",
+        "  GROUP BY\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    UserName_Clean\n",
+        "),\n",
+        "lab_ranked AS (\n",
+        "  SELECT\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    DENSE_RANK() OVER (PARTITION BY Entity, Month ORDER BY AVG(Total_Avg_Duration) DESC) AS lab_rank\n",
+        "  FROM\n",
+        "    duration_totals\n",
+        "  GROUP BY\n",
+        "    ReportName,\n",
+        "    Entity,\n",
+        "    Month\n",
+        ")\n",
+        "SELECT\n",
+        "  d.ReportName,\n",
+        "  d.Entity,\n",
+        "  d.Month,\n",
+        "  d.UserName_Clean,\n",
+        "  'Data Retrieval' AS Metric,\n",
+        "  d.Avg_DataRetrieval_Sec AS Avg_Duration_Sec,\n",
+        "  r.lab_rank\n",
+        "FROM\n",
+        "  duration_totals d\n",
+        "    INNER JOIN lab_ranked r\n",
+        "      ON d.ReportName = r.ReportName\n",
+        "      AND d.Entity = r.Entity\n",
+        "      AND d.Month = r.Month\n",
+        "WHERE\n",
+        "  r.lab_rank <= 10\n",
+        "UNION ALL\n",
+        "SELECT\n",
+        "  d.ReportName,\n",
+        "  d.Entity,\n",
+        "  d.Month,\n",
+        "  d.UserName_Clean,\n",
+        "  'Processing' AS Metric,\n",
+        "  d.Avg_Processing_Sec AS Avg_Duration_Sec,\n",
+        "  r.lab_rank\n",
+        "FROM\n",
+        "  duration_totals d\n",
+        "    INNER JOIN lab_ranked r\n",
+        "      ON d.ReportName = r.ReportName\n",
+        "      AND d.Entity = r.Entity\n",
+        "      AND d.Month = r.Month\n",
+        "WHERE\n",
+        "  r.lab_rank <= 10\n",
+        "UNION ALL\n",
+        "SELECT\n",
+        "  d.ReportName,\n",
+        "  d.Entity,\n",
+        "  d.Month,\n",
+        "  d.UserName_Clean,\n",
+        "  'Rendering' AS Metric,\n",
+        "  d.Avg_Rendering_Sec AS Avg_Duration_Sec,\n",
+        "  r.lab_rank\n",
+        "FROM\n",
+        "  duration_totals d\n",
+        "    INNER JOIN lab_ranked r\n",
+        "      ON d.ReportName = r.ReportName\n",
+        "      AND d.Entity = r.Entity\n",
+        "      AND d.Month = r.Month\n",
+        "WHERE\n",
+        "  r.lab_rank <= 10\n",
+        "ORDER BY\n",
+        "  Month,\n",
+        "  ReportName,\n",
+        "  Metric;"
+      ]
+    },
+    {
+      "name": "03823527",
+      "displayName": "kpi_execution_detail",
+      "queryLines": [
+        "SELECT\n",
+        "  Entity,\n",
+        "  Month,\n",
+        "  ReportName,\n",
+        "  UserName_Clean,\n",
+        "  Domain,\n",
+        "  CASE\n",
+        "    WHEN IsSystemAccount = false THEN 'Human'\n",
+        "    ELSE 'System'\n",
+        "  END AS Account_Type,\n",
+        "  SUM(Total_User_Executions) AS Total_Executions,\n",
+        "  ROUND(AVG(Avg_Duration_Sec), 2) AS Avg_Duration_Sec,\n",
+        "  ROUND(AVG(Avg_DataRetrieval_Sec), 2) AS Avg_Retrieval_Sec,\n",
+        "  ROUND(AVG(Avg_Processing_Sec), 2) AS Avg_Processing_Sec,\n",
+        "  ROUND(AVG(Avg_Rendering_Sec), 2) AS Avg_Rendering_Sec,\n",
+        "  ROUND(AVG(Avg_Row_Count), 0) AS Avg_Row_Count,\n",
+        "  ROUND(AVG(Avg_Byte_Count), 0) AS Avg_Byte_Count\n",
+        "FROM\n",
+        "  workspace.gold.report_execution_summary\n",
+        "WHERE\n",
+        "  ReportName IS NOT NULL\n",
+        "GROUP BY\n",
+        "  Entity,\n",
+        "  Month,\n",
+        "  ReportName,\n",
+        "  UserName_Clean,\n",
+        "  Domain,\n",
+        "  IsSystemAccount\n",
+        "ORDER BY\n",
+        "  Month,\n",
+        "  Total_Executions DESC;"
+      ]
+    },
+    {
+      "name": "c99e8845",
+      "displayName": "kpi_reports_by_lab",
+      "queryLines": [
+        "SELECT\r\n",
+        "    Entity,\r\n",
+        "    Month,\r\n",
+        "    ReportName,\r\n",
+        "    UserName_Clean,\r\n",
+        "    SUM(Total_User_Executions)                               AS Total_Executions,\r\n",
+        "    COUNT(DISTINCT UserName_Clean)                           AS Unique_Users,\r\n",
+        "    ROUND(AVG(Avg_Duration_Sec),      2)                     AS Avg_Duration_Sec,\r\n",
+        "    ROUND(AVG(Avg_DataRetrieval_Sec), 2)                     AS Avg_DataRetrieval_Sec,\r\n",
+        "    ROUND(AVG(Avg_Processing_Sec),    2)                     AS Avg_Processing_Sec,\r\n",
+        "    ROUND(AVG(Avg_Rendering_Sec),     2)                     AS Avg_Rendering_Sec\r\n",
+        "FROM workspace.gold.report_execution_summary\r\n",
+        "WHERE ReportName IS NOT NULL\r\n",
+        "GROUP BY Entity, Month, ReportName, UserName_Clean\r\n",
+        "ORDER BY Entity, Total_Executions DESC;"
+      ]
+    },
+    {
+      "name": "8828978c",
+      "displayName": "kpi_performance_detail",
+      "queryLines": [
+        "WITH perf_totals AS (\n",
+        "  SELECT\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    ReportName,\n",
+        "    UserName_Clean,\n",
+        "    ROUND(AVG(Avg_Duration_Sec), 2) AS Avg_Duration_Sec,\n",
+        "    ROUND(MAX(Max_Duration_Sec), 2) AS Max_Duration_Sec,\n",
+        "    ROUND(AVG(P95_Duration_Sec), 2) AS P95_Duration_Sec,\n",
+        "    ROUND(AVG(Avg_DataRetrieval_Sec), 2) AS Avg_DataRetrieval_Sec,\n",
+        "    ROUND(AVG(Avg_Processing_Sec), 2) AS Avg_Processing_Sec,\n",
+        "    ROUND(AVG(Avg_Rendering_Sec), 2) AS Avg_Rendering_Sec,\n",
+        "    SUM(Total_User_Executions) AS Total_Executions\n",
+        "  FROM\n",
+        "    workspace.gold.report_execution_summary\n",
+        "  WHERE\n",
+        "    ReportName IS NOT NULL\n",
+        "  GROUP BY\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    ReportName,\n",
+        "    UserName_Clean\n",
+        "),\n",
+        "lab_perf AS (\n",
+        "  SELECT\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    ReportName,\n",
+        "    AVG(P95_Duration_Sec) AS Lab_P95\n",
+        "  FROM\n",
+        "    perf_totals\n",
+        "  GROUP BY\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    ReportName\n",
+        "),\n",
+        "ranked AS (\n",
+        "  SELECT\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    ReportName,\n",
+        "    DENSE_RANK() OVER (PARTITION BY Entity, Month ORDER BY Lab_P95 DESC) AS lab_rank\n",
+        "  FROM\n",
+        "    lab_perf\n",
+        ")\n",
+        "SELECT\n",
+        "  p.Entity,\n",
+        "  p.Month,\n",
+        "  p.ReportName,\n",
+        "  p.UserName_Clean,\n",
+        "  p.Avg_Duration_Sec,\n",
+        "  p.Max_Duration_Sec,\n",
+        "  p.P95_Duration_Sec,\n",
+        "  p.Avg_DataRetrieval_Sec,\n",
+        "  p.Avg_Processing_Sec,\n",
+        "  p.Avg_Rendering_Sec,\n",
+        "  p.Total_Executions,\n",
+        "  r.lab_rank\n",
+        "FROM\n",
+        "  perf_totals p\n",
+        "    INNER JOIN ranked r\n",
+        "      ON p.ReportName = r.ReportName\n",
+        "      AND p.Entity = r.Entity\n",
+        "      AND p.Month = r.Month\n",
+        "WHERE\n",
+        "  r.lab_rank <= 10\n",
+        "ORDER BY\n",
+        "  p.Month,\n",
+        "  p.Entity,\n",
+        "  p.P95_Duration_Sec DESC;"
+      ]
+    },
+    {
+      "name": "8329fcd5",
+      "displayName": "kpi_top_users_by_lab",
+      "queryLines": [
+        "WITH user_totals AS (\n",
+        "  SELECT\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    ReportName,\n",
+        "    UserName_Clean,\n",
+        "    Domain,\n",
+        "    SUM(Total_User_Executions) AS Total_Executions,\n",
+        "    COUNT(DISTINCT ReportName) AS Reports_Run\n",
+        "  FROM\n",
+        "    workspace.gold.report_execution_summary\n",
+        "  WHERE\n",
+        "    IsSystemAccount = false\n",
+        "    AND ReportName IS NOT NULL\n",
+        "  GROUP BY\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    ReportName,\n",
+        "    UserName_Clean,\n",
+        "    Domain\n",
+        "),\n",
+        "user_by_lab AS (\n",
+        "  SELECT\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    UserName_Clean,\n",
+        "    Domain,\n",
+        "    ReportName,\n",
+        "    SUM(Total_Executions) AS Total_Executions,\n",
+        "    SUM(Reports_Run) AS Total_Reports_Run\n",
+        "  FROM\n",
+        "    user_totals\n",
+        "  GROUP BY\n",
+        "    Entity,\n",
+        "    Month,\n",
+        "    UserName_Clean,\n",
+        "    Domain,\n",
+        "    ReportName\n",
+        "),\n",
+        "ranked AS (\n",
+        "  SELECT\n",
+        "    *,\n",
+        "    DENSE_RANK() OVER (PARTITION BY Entity, Month ORDER BY Total_Executions DESC) AS lab_rank\n",
+        "  FROM\n",
+        "    user_by_lab\n",
+        ")\n",
+        "SELECT\n",
+        "  Entity,\n",
+        "  Month,\n",
+        "  UserName_Clean,\n",
+        "  Domain,\n",
+        "  ReportName,\n",
+        "  Total_Executions,\n",
+        "  Total_Reports_Run,\n",
+        "  lab_rank\n",
+        "FROM\n",
+        "  ranked\n",
+        "WHERE\n",
+        "  lab_rank <= 10\n",
+        "ORDER BY\n",
+        "  Month,\n",
+        "  Entity,\n",
+        "  lab_rank,\n",
+        "  Total_Executions DESC;"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "0bfa4730",
+      "displayName": "Overall Tracking",
+      "layout": [
+        {
+          "widget": {
+            "name": "138b758c",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"text-align:center;display:block\"><span style=\"font-size:36px;line-height:1.5\">**Report Execution Tracking Dashboard**</span></span>\n",
+                "\n",
+                "<span style=\"text-align:center;display:block\"><span style=\"font-size:24px\">**2026 Report Usage Analysis | 13 Labs**</span></span>"
+              ],
+              "verticalAlign": "VERTICAL_ALIGN_CENTER"
+            },
+            "specExtensions": {
+              "widgetBackgroundColor": {
+                "light": "#FFFFFF"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "tot",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "7708da41",
+                  "fields": [
+                    {
+                      "name": "sum(Total_Executions)",
+                      "expression": "SUM(`Total_Executions`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Total Executions",
+                "showDescription": false,
+                "headerAlignment": "center"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(Total_Executions)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    },
+                    "significantFigures": {
+                      "type": "all"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "unique-reports",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "7708da41",
+                  "fields": [
+                    {
+                      "name": "countdistinct(ReportName)",
+                      "expression": "COUNT(DISTINCT `ReportName`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Unique Reports",
+                "headerAlignment": "center"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(ReportName)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "ac",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "7708da41",
+                  "fields": [
+                    {
+                      "name": "countdistinct(UserName_Clean)",
+                      "expression": "COUNT(DISTINCT `UserName_Clean`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Active Users",
+                "headerAlignment": "center"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(UserName_Clean)"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "t1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "7708da41",
+                  "fields": [
+                    {
+                      "name": "countdistinct(Entity)",
+                      "expression": "COUNT(DISTINCT `Entity`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Total Labs",
+                "headerAlignment": "center"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(Entity)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "total-executions-by-lab",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "822a3dec",
+                  "fields": [
+                    {
+                      "name": "sum(Total_Executions)",
+                      "expression": "SUM(`Total_Executions`)"
+                    },
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Total Executions by Lab",
+                "headerAlignment": "center"
+              },
+              "style": {
+                "fontColor": {
+                  "light": "#000000"
+                }
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "Entity",
+                  "displayName": "Labs",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(Total_Executions)",
+                  "axis": {
+                    "hideTitle": false,
+                    "title": "Total Executions"
+                  },
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    },
+                    "significantFigures": {
+                      "type": "exact",
+                      "figures": 3
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(Total_Executions)",
+                  "legend": {
+                    "position": "right",
+                    "title": "Execution Count"
+                  },
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "scheme",
+                      "scheme": "reds"
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            },
+            "specExtensions": {
+              "widgetBackgroundColor": {
+                "light": "#FFFFFF"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 12,
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "human-vs-system-account-executions",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "28636de3",
+                  "fields": [
+                    {
+                      "name": "sum(Total_Executions)",
+                      "expression": "SUM(`Total_Executions`)"
+                    },
+                    {
+                      "name": "Account_Type",
+                      "expression": "`Account_Type`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Human vs System Account Executions",
+                "headerAlignment": "center"
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "sum(Total_Executions)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  },
+                  "displayName": "Total Executions "
+                },
+                "color": {
+                  "fieldName": "Account_Type",
+                  "legend": {
+                    "hideTitle": true,
+                    "position": "bottom"
+                  },
+                  "displayName": "System account",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": false,
+                        "color": "#1191E4"
+                      },
+                      {
+                        "value": true,
+                        "color": "#FF1800"
+                      },
+                      {
+                        "value": "System",
+                        "color": "#FA5240"
+                      },
+                      {
+                        "value": "Human",
+                        "color": {
+                          "themeColorType": "selectionColor"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 4,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "top-1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a11d80dd",
+                  "fields": [
+                    {
+                      "name": "sum(Total_Executions)",
+                      "expression": "SUM(`Total_Executions`)"
+                    },
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Overall Top Reports Used",
+                "headerAlignment": "center"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(Total_Executions)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "displayName": "Total Executions",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "ReportName",
+                  "displayName": "Report ",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(Total_Executions)",
+                  "legend": {
+                    "title": "Execution Count"
+                  },
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "scheme",
+                      "scheme": "blues"
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 12,
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "top-2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "0193d42a",
+                  "fields": [
+                    {
+                      "name": "sum(Total_Executions)",
+                      "expression": "SUM(`Total_Executions`)"
+                    },
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Global Top 10 Users",
+                "headerAlignment": "center"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(Total_Executions)",
+                  "displayName": "Total Executions",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "UserName_Clean",
+                  "displayName": "Users",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(Total_Executions)",
+                  "legend": {
+                    "title": "Execution Count"
+                  },
+                  "displayName": "Total Executions",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "scheme",
+                      "scheme": "greens"
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 13,
+            "width": 8,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "d8aeb2f1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a11d80dd",
+                  "fields": [
+                    {
+                      "name": "sum(Total_Executions)",
+                      "expression": "SUM(`Total_Executions`)"
+                    },
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "facet": {
+                "type": "wrap",
+                "fieldName": "Entity",
+                "scale": {
+                  "type": "categorical"
+                }
+              },
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Top Reports Used Per Lab",
+                "headerAlignment": "center"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(Total_Executions)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "displayName": "Total Executions",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "ReportName",
+                  "displayName": "Report ",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(Total_Executions)",
+                  "legend": {
+                    "title": "Execution Count"
+                  },
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "scheme",
+                      "scheme": "blues"
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 29,
+            "width": 12,
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "top-users",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "8329fcd5",
+                  "fields": [
+                    {
+                      "name": "sum(Total_Executions)",
+                      "expression": "SUM(`Total_Executions`)"
+                    },
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    },
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "facet": {
+                "type": "wrap",
+                "fieldName": "Entity",
+                "scale": {
+                  "type": "categorical"
+                }
+              },
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Top users per lab",
+                "headerAlignment": "center"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(Total_Executions)",
+                  "axis": {
+                    "title": "Total Executions"
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "UserName_Clean",
+                  "axis": {
+                    "title": "Username"
+                  },
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(Total_Executions)",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "scheme",
+                      "scheme": "greens"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 38,
+            "width": 12,
+            "height": 10
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "962f4ffa",
+      "displayName": "Time Tracking",
+      "layout": [
+        {
+          "widget": {
+            "name": "slowest-reports-p95-execution-time-seconds",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "016ea335",
+                  "fields": [
+                    {
+                      "name": "avg(P95_Duration_Sec)",
+                      "expression": "AVG(`P95_Duration_Sec`)"
+                    },
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "title": "Slowest Reports by P95 Execution Time (seconds)"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "avg(P95_Duration_Sec)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "displayName": "Average Time (seconds)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "ReportName",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "avg(P95_Duration_Sec)",
+                  "legend": {
+                    "title": "Duration In Seconds"
+                  },
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "scheme",
+                      "scheme": "reds"
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 12,
+            "height": 11
+          }
+        },
+        {
+          "widget": {
+            "name": "a27730b4",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"text-align:center;display:block\"><span style=\"font-size:24px\">**Execution Time Analysis**</span></span>"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "avg-execution-time-heatmap-retrieval-vs-processing-vs-rendering",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "eb81e97b",
+                  "fields": [
+                    {
+                      "name": "avg(Avg_Duration_Sec)",
+                      "expression": "AVG(`Avg_Duration_Sec`)"
+                    },
+                    {
+                      "name": "Metric",
+                      "expression": "`Metric`"
+                    },
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Execution Time Heatmap — Retrieval vs Processing vs Rendering",
+                "headerAlignment": "center"
+              },
+              "widgetType": "heatmap",
+              "encodings": {
+                "x": {
+                  "fieldName": "Metric",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "natural-order"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "ReportName",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "natural-order"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "avg(Avg_Duration_Sec)",
+                  "legend": {
+                    "title": "Average Duration(sec)"
+                  },
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "scheme",
+                      "scheme": "greens"
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 12,
+            "height": 16
+          }
+        },
+        {
+          "widget": {
+            "name": "heaviest-reports-average-data-volume-bytes",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "d24bf7ca",
+                  "fields": [
+                    {
+                      "name": "avg(Avg_Byte_Count)",
+                      "expression": "AVG(`Avg_Byte_Count`)"
+                    },
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "facet": {
+                "type": "wrap",
+                "fieldName": "Entity",
+                "scale": {
+                  "type": "categorical"
+                }
+              },
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "title": "Heaviest Reports by Average Data Volume (bytes)"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "avg(Avg_Byte_Count)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    },
+                    "significantFigures": {
+                      "type": "all"
+                    }
+                  },
+                  "displayName": "Bytes",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "ReportName",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "avg(Avg_Byte_Count)",
+                  "legend": {
+                    "title": "FIle size in Bytes"
+                  },
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "displayName": "Bytes",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "scheme",
+                      "scheme": "greenblue"
+                    }
+                  }
+                },
+                "label": {
+                  "show": true,
+                  "showTotal": false
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 28,
+            "width": 12,
+            "height": 12
+          }
+        },
+        {
+          "widget": {
+            "name": "performance",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "8828978c",
+                  "fields": [
+                    {
+                      "name": "sum(P95_Duration_Sec)",
+                      "expression": "SUM(`P95_Duration_Sec`)"
+                    },
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "facet": {
+                "type": "wrap",
+                "fieldName": "Entity",
+                "scale": {
+                  "type": "categorical"
+                }
+              },
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "title": "Performance Per Lab"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(P95_Duration_Sec)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "ReportName",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "sum(P95_Duration_Sec)",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "scheme",
+                      "scheme": "reds"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 40,
+            "width": 12,
+            "height": 9
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "1e06f246",
+      "displayName": "Summary",
+      "layout": [
+        {
+          "widget": {
+            "name": "full-report-execution-detail",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "03823527",
+                  "fields": [
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Avg_Row_Count",
+                      "expression": "`Avg_Row_Count`"
+                    },
+                    {
+                      "name": "Avg_Byte_Count",
+                      "expression": "`Avg_Byte_Count`"
+                    },
+                    {
+                      "name": "Total_Executions",
+                      "expression": "`Total_Executions`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    },
+                    {
+                      "name": "Domain",
+                      "expression": "`Domain`"
+                    },
+                    {
+                      "name": "sum(Avg_Duration_Sec)",
+                      "expression": "SUM(`Avg_Duration_Sec`)"
+                    },
+                    {
+                      "name": "sum(Avg_Retrieval_Sec)",
+                      "expression": "SUM(`Avg_Retrieval_Sec`)"
+                    },
+                    {
+                      "name": "sum(Avg_Processing_Sec)",
+                      "expression": "SUM(`Avg_Processing_Sec`)"
+                    },
+                    {
+                      "name": "sum(Avg_Rendering_Sec)",
+                      "expression": "SUM(`Avg_Rendering_Sec`)"
+                    },
+                    {
+                      "name": "Account_Type",
+                      "expression": "`Account_Type`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "displayRowNumbers": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Full Report Execution Detail",
+                "headerAlignment": "center"
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "ReportName"
+                  },
+                  {
+                    "fieldName": "Entity"
+                  },
+                  {
+                    "fieldName": "Avg_Row_Count"
+                  },
+                  {
+                    "fieldName": "Avg_Byte_Count"
+                  },
+                  {
+                    "fieldName": "Total_Executions",
+                    "contentAlignment": "center"
+                  },
+                  {
+                    "fieldName": "count(*)",
+                    "contentAlignment": "center"
+                  },
+                  {
+                    "fieldName": "UserName_Clean"
+                  },
+                  {
+                    "fieldName": "Domain"
+                  },
+                  {
+                    "fieldName": "sum(Avg_Duration_Sec)"
+                  },
+                  {
+                    "fieldName": "sum(Avg_Retrieval_Sec)"
+                  },
+                  {
+                    "fieldName": "sum(Avg_Processing_Sec)"
+                  },
+                  {
+                    "fieldName": "sum(Avg_Rendering_Sec)"
+                  },
+                  {
+                    "fieldName": "Account_Type"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 12,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "ffa2f02d",
+            "queries": [
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d29cd0e1315852395204c516f70_Entity",
+                "query": {
+                  "datasetName": "7708da41",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adbbb1eb5bddad58c83a1505c_Entity",
+                "query": {
+                  "datasetName": "822a3dec",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adc97142386576d8bf48c0487_Entity",
+                "query": {
+                  "datasetName": "a11d80dd",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2add5a1365b721322beb13d6e9_Entity",
+                "query": {
+                  "datasetName": "0193d42a",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2ade2b10a5960ad54b02ea18b2_Entity",
+                "query": {
+                  "datasetName": "016ea335",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adf11199fbe14a6c8128a7d7e_Entity",
+                "query": {
+                  "datasetName": "d24bf7ca",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adfe11116b60f2da5c569f38a_Entity",
+                "query": {
+                  "datasetName": "28636de3",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dcd31011de2b484a73c4b3db9a0_Entity",
+                "query": {
+                  "datasetName": "eb81e97b",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dd1fad5139da6ca69c01202db02_Entity",
+                "query": {
+                  "datasetName": "03823527",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14eb38e441e6a999de3ce2f88e213_Entity",
+                "query": {
+                  "datasetName": "c99e8845",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Lab Name",
+                "headerAlignment": "center"
+              },
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d29cd0e1315852395204c516f70_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adbbb1eb5bddad58c83a1505c_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adc97142386576d8bf48c0487_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2add5a1365b721322beb13d6e9_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2ade2b10a5960ad54b02ea18b2_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adf11199fbe14a6c8128a7d7e_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adfe11116b60f2da5c569f38a_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dcd31011de2b484a73c4b3db9a0_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dd1fad5139da6ca69c01202db02_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14eb38e441e6a999de3ce2f88e213_Entity"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "54b78976",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "c99e8845",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    },
+                    {
+                      "name": "Total_Executions",
+                      "expression": "`Total_Executions`"
+                    },
+                    {
+                      "name": "Unique_Users",
+                      "expression": "`Unique_Users`"
+                    },
+                    {
+                      "name": "Avg_Duration_Sec",
+                      "expression": "`Avg_Duration_Sec`"
+                    },
+                    {
+                      "name": "Avg_DataRetrieval_Sec",
+                      "expression": "`Avg_DataRetrieval_Sec`"
+                    },
+                    {
+                      "name": "Avg_Processing_Sec",
+                      "expression": "`Avg_Processing_Sec`"
+                    },
+                    {
+                      "name": "Avg_Rendering_Sec",
+                      "expression": "`Avg_Rendering_Sec`"
+                    },
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "Entity"
+                  },
+                  {
+                    "fieldName": "ReportName"
+                  },
+                  {
+                    "fieldName": "UserName_Clean"
+                  },
+                  {
+                    "fieldName": "Total_Executions"
+                  },
+                  {
+                    "fieldName": "Unique_Users"
+                  },
+                  {
+                    "fieldName": "Avg_Duration_Sec"
+                  },
+                  {
+                    "fieldName": "Avg_DataRetrieval_Sec"
+                  },
+                  {
+                    "fieldName": "Avg_Processing_Sec"
+                  },
+                  {
+                    "fieldName": "Avg_Rendering_Sec"
+                  },
+                  {
+                    "fieldName": "Month"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 12,
+            "height": 9
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "2aea7edc",
+      "displayName": "Global Filters",
+      "layout": [
+        {
+          "widget": {
+            "name": "ac6cde2d",
+            "queries": [
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d29cd0e1315852395204c516f70_Entity",
+                "query": {
+                  "datasetName": "7708da41",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adbbb1eb5bddad58c83a1505c_Entity",
+                "query": {
+                  "datasetName": "822a3dec",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adc97142386576d8bf48c0487_Entity",
+                "query": {
+                  "datasetName": "a11d80dd",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2ade2b10a5960ad54b02ea18b2_Entity",
+                "query": {
+                  "datasetName": "016ea335",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adf11199fbe14a6c8128a7d7e_Entity",
+                "query": {
+                  "datasetName": "d24bf7ca",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adfe11116b60f2da5c569f38a_Entity",
+                "query": {
+                  "datasetName": "28636de3",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dcd31011de2b484a73c4b3db9a0_Entity",
+                "query": {
+                  "datasetName": "eb81e97b",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dd1fad5139da6ca69c01202db02_Entity",
+                "query": {
+                  "datasetName": "03823527",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f159ab4fb116d7818ea0bb7d7f2d4d_Entity",
+                "query": {
+                  "datasetName": "8329fcd5",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f1599c7bb0123794f3d7f7c2c5877b_Entity",
+                "query": {
+                  "datasetName": "8828978c",
+                  "fields": [
+                    {
+                      "name": "Entity",
+                      "expression": "`Entity`"
+                    },
+                    {
+                      "name": "Entity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Lab Name",
+                "headerAlignment": "center"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d29cd0e1315852395204c516f70_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adbbb1eb5bddad58c83a1505c_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adc97142386576d8bf48c0487_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2ade2b10a5960ad54b02ea18b2_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adf11199fbe14a6c8128a7d7e_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adfe11116b60f2da5c569f38a_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dcd31011de2b484a73c4b3db9a0_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dd1fad5139da6ca69c01202db02_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f159ab4fb116d7818ea0bb7d7f2d4d_Entity"
+                  },
+                  {
+                    "fieldName": "Entity",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f1599c7bb0123794f3d7f7c2c5877b_Entity"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "207015ea",
+            "queries": [
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d29cd0e1315852395204c516f70_ReportName",
+                "query": {
+                  "datasetName": "7708da41",
+                  "fields": [
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "ReportName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adbbb1eb5bddad58c83a1505c_ReportName",
+                "query": {
+                  "datasetName": "822a3dec",
+                  "fields": [
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "ReportName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adc97142386576d8bf48c0487_ReportName",
+                "query": {
+                  "datasetName": "a11d80dd",
+                  "fields": [
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "ReportName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2add5a1365b721322beb13d6e9_ReportName",
+                "query": {
+                  "datasetName": "0193d42a",
+                  "fields": [
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "ReportName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adf11199fbe14a6c8128a7d7e_ReportName",
+                "query": {
+                  "datasetName": "d24bf7ca",
+                  "fields": [
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "ReportName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adfe11116b60f2da5c569f38a_ReportName",
+                "query": {
+                  "datasetName": "28636de3",
+                  "fields": [
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "ReportName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dcd31011de2b484a73c4b3db9a0_ReportName",
+                "query": {
+                  "datasetName": "eb81e97b",
+                  "fields": [
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "ReportName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dd1fad5139da6ca69c01202db02_ReportName",
+                "query": {
+                  "datasetName": "03823527",
+                  "fields": [
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "ReportName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f1599c7bb0123794f3d7f7c2c5877b_ReportName",
+                "query": {
+                  "datasetName": "8828978c",
+                  "fields": [
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "ReportName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f159ab4fb116d7818ea0bb7d7f2d4d_ReportName",
+                "query": {
+                  "datasetName": "8329fcd5",
+                  "fields": [
+                    {
+                      "name": "ReportName",
+                      "expression": "`ReportName`"
+                    },
+                    {
+                      "name": "ReportName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Report Name",
+                "headerAlignment": "center"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "ReportName",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d29cd0e1315852395204c516f70_ReportName"
+                  },
+                  {
+                    "fieldName": "ReportName",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adbbb1eb5bddad58c83a1505c_ReportName"
+                  },
+                  {
+                    "fieldName": "ReportName",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adc97142386576d8bf48c0487_ReportName"
+                  },
+                  {
+                    "fieldName": "ReportName",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2add5a1365b721322beb13d6e9_ReportName"
+                  },
+                  {
+                    "fieldName": "ReportName",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adf11199fbe14a6c8128a7d7e_ReportName"
+                  },
+                  {
+                    "fieldName": "ReportName",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adfe11116b60f2da5c569f38a_ReportName"
+                  },
+                  {
+                    "fieldName": "ReportName",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dcd31011de2b484a73c4b3db9a0_ReportName"
+                  },
+                  {
+                    "fieldName": "ReportName",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dd1fad5139da6ca69c01202db02_ReportName"
+                  },
+                  {
+                    "fieldName": "ReportName",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f1599c7bb0123794f3d7f7c2c5877b_ReportName"
+                  },
+                  {
+                    "fieldName": "ReportName",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f159ab4fb116d7818ea0bb7d7f2d4d_ReportName"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "1cfc2f99",
+            "queries": [
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d29cd0e1315852395204c516f70_UserName_Clean",
+                "query": {
+                  "datasetName": "7708da41",
+                  "fields": [
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    },
+                    {
+                      "name": "UserName_Clean_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adbbb1eb5bddad58c83a1505c_UserName_Clean",
+                "query": {
+                  "datasetName": "822a3dec",
+                  "fields": [
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    },
+                    {
+                      "name": "UserName_Clean_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adc97142386576d8bf48c0487_UserName_Clean",
+                "query": {
+                  "datasetName": "a11d80dd",
+                  "fields": [
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    },
+                    {
+                      "name": "UserName_Clean_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2add5a1365b721322beb13d6e9_UserName_Clean",
+                "query": {
+                  "datasetName": "0193d42a",
+                  "fields": [
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    },
+                    {
+                      "name": "UserName_Clean_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2ade2b10a5960ad54b02ea18b2_UserName_Clean",
+                "query": {
+                  "datasetName": "016ea335",
+                  "fields": [
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    },
+                    {
+                      "name": "UserName_Clean_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adf11199fbe14a6c8128a7d7e_UserName_Clean",
+                "query": {
+                  "datasetName": "d24bf7ca",
+                  "fields": [
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    },
+                    {
+                      "name": "UserName_Clean_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adfe11116b60f2da5c569f38a_UserName_Clean",
+                "query": {
+                  "datasetName": "28636de3",
+                  "fields": [
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    },
+                    {
+                      "name": "UserName_Clean_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dcd31011de2b484a73c4b3db9a0_UserName_Clean",
+                "query": {
+                  "datasetName": "eb81e97b",
+                  "fields": [
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    },
+                    {
+                      "name": "UserName_Clean_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dd1fad5139da6ca69c01202db02_UserName_Clean",
+                "query": {
+                  "datasetName": "03823527",
+                  "fields": [
+                    {
+                      "name": "UserName_Clean",
+                      "expression": "`UserName_Clean`"
+                    },
+                    {
+                      "name": "UserName_Clean_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "User Name",
+                "headerAlignment": "center"
+              },
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "UserName_Clean",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d29cd0e1315852395204c516f70_UserName_Clean"
+                  },
+                  {
+                    "fieldName": "UserName_Clean",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adbbb1eb5bddad58c83a1505c_UserName_Clean"
+                  },
+                  {
+                    "fieldName": "UserName_Clean",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adc97142386576d8bf48c0487_UserName_Clean"
+                  },
+                  {
+                    "fieldName": "UserName_Clean",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2add5a1365b721322beb13d6e9_UserName_Clean"
+                  },
+                  {
+                    "fieldName": "UserName_Clean",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2ade2b10a5960ad54b02ea18b2_UserName_Clean"
+                  },
+                  {
+                    "fieldName": "UserName_Clean",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adf11199fbe14a6c8128a7d7e_UserName_Clean"
+                  },
+                  {
+                    "fieldName": "UserName_Clean",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adfe11116b60f2da5c569f38a_UserName_Clean"
+                  },
+                  {
+                    "fieldName": "UserName_Clean",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dcd31011de2b484a73c4b3db9a0_UserName_Clean"
+                  },
+                  {
+                    "fieldName": "UserName_Clean",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dd1fad5139da6ca69c01202db02_UserName_Clean"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "month",
+            "queries": [
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d29cd0e1315852395204c516f70_Month",
+                "query": {
+                  "datasetName": "7708da41",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "Month_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adbbb1eb5bddad58c83a1505c_Month",
+                "query": {
+                  "datasetName": "822a3dec",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "Month_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adc97142386576d8bf48c0487_Month",
+                "query": {
+                  "datasetName": "a11d80dd",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "Month_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2add5a1365b721322beb13d6e9_Month",
+                "query": {
+                  "datasetName": "0193d42a",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "Month_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2ade2b10a5960ad54b02ea18b2_Month",
+                "query": {
+                  "datasetName": "016ea335",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "Month_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adf11199fbe14a6c8128a7d7e_Month",
+                "query": {
+                  "datasetName": "d24bf7ca",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "Month_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adfe11116b60f2da5c569f38a_Month",
+                "query": {
+                  "datasetName": "28636de3",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "Month_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dcd31011de2b484a73c4b3db9a0_Month",
+                "query": {
+                  "datasetName": "eb81e97b",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "Month_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dd1fad5139da6ca69c01202db02_Month",
+                "query": {
+                  "datasetName": "03823527",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "Month_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14eb38e441e6a999de3ce2f88e213_Month",
+                "query": {
+                  "datasetName": "c99e8845",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "Month_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f1599c7bb0123794f3d7f7c2c5877b_Month",
+                "query": {
+                  "datasetName": "8828978c",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "Month_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f159ab4fb116d7818ea0bb7d7f2d4d_Month",
+                "query": {
+                  "datasetName": "8329fcd5",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "Month_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Month",
+                "headerAlignment": "center"
+              },
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Month",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d29cd0e1315852395204c516f70_Month"
+                  },
+                  {
+                    "fieldName": "Month",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adbbb1eb5bddad58c83a1505c_Month"
+                  },
+                  {
+                    "fieldName": "Month",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adc97142386576d8bf48c0487_Month"
+                  },
+                  {
+                    "fieldName": "Month",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2add5a1365b721322beb13d6e9_Month"
+                  },
+                  {
+                    "fieldName": "Month",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2ade2b10a5960ad54b02ea18b2_Month"
+                  },
+                  {
+                    "fieldName": "Month",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adf11199fbe14a6c8128a7d7e_Month"
+                  },
+                  {
+                    "fieldName": "Month",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14d2adfe11116b60f2da5c569f38a_Month"
+                  },
+                  {
+                    "fieldName": "Month",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dcd31011de2b484a73c4b3db9a0_Month"
+                  },
+                  {
+                    "fieldName": "Month",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14dd1fad5139da6ca69c01202db02_Month"
+                  },
+                  {
+                    "fieldName": "Month",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f14eb38e441e6a999de3ce2f88e213_Month"
+                  },
+                  {
+                    "fieldName": "Month",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f1599c7bb0123794f3d7f7c2c5877b_Month"
+                  },
+                  {
+                    "fieldName": "Month",
+                    "queryName": "dashboards/01f14d15cf151ede868c0476143c0d5e/datasets/01f159ab4fb116d7818ea0bb7d7f2d4d_Month"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 1,
+            "height": 2
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}
